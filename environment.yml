@@ -1,0 +1,66 @@
+name: 2026_Gierschek_et_al_CD123_CD33_CAR_NK
+
+channels:
+  - conda-forge
+  - bioconda
+  - defaults
+
+dependencies:
+  # Core
+  - python=3.12
+  - r-base=4.4.3
+
+  # Development tools
+  - git
+  - make
+  - pandoc
+
+  # R package management
+  - r-remotes
+  - r-devtools
+  - r-biocmanager
+
+  # Common CRAN packages
+  - r-seurat
+  - r-seuratobject
+  - r-yaml
+  - r-ggplot2
+  - r-patchwork
+  - r-dplyr
+  - r-here
+  - r-doparallel
+  - r-data.table
+  - r-matrix
+  - r-stringr
+  - r-scales
+  - r-openxlsx
+  - r-cowplot
+  - r-ggthemes
+  - r-future
+  - r-future.apply
+  - r-tibble
+  - r-tidyr
+  - r-purrr
+  - r-readr
+  - r-shadowtext
+  - r-forcats
+
+  # Bioconductor
+  - bioconductor-singlecellexperiment
+  - bioconductor-scdblfinder
+  - bioconductor-dittoseq
+  - bioconductor-scds
+  - bioconductor-ucell
+  - bioconductor-scater
+  - bioconductor-scran
+  - bioconductor-scuttle
+  - bioconductor-clusterprofiler
+  - bioconductor-enrichplot
+
+  # Utilities
+  - jupyterlab
+  - r-irkernel
+  - pip
+
+  - pip:
+      - session-info
