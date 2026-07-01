@@ -1,0 +1,898 @@
+---
+title: "Figures"
+subtitle: "CAR-NK against AML"
+author: "Fraunhofer IZI, Christina Kuhn"
+date: "`r Sys.Date()`"
+format: 
+  html:
+    toc: true             # Enable table of contents
+    toc-title: "Contents" # Optional: Set a title for the TOC
+    toc-depth: 3          
+    code-fold: true       # Enable code folding
+execute:
+  warning: false
+---
+
+```{r}
+#| label: load-packages
+#| include: true
+#| eval: true
+#| warning: false
+#| code-fold: true
+#| code-summary: "Libraries used"
+
+.required_packages <- c(
+"Seurat",
+"yaml",
+"ggplot2",
+"patchwork",
+"dplyr",
+"here",
+"doParallel",
+"parallel",
+"data.table",
+"Matrix",
+"SoupX",
+"stringr",
+"naturalsort",
+"scales",
+"openxlsx",
+"cowplot",
+"ggthemes",
+"SingleCellExperiment",
+"scDblFinder",
+"dittoSeq",
+"clustifyr",
+"scds",
+"UCell",
+"scGate",
+"ggrepel",
+"clusterProfiler", 
+"org.Hs.eg.db", 
+"enrichplot", 
+"msigdbr"
+)
+
+# Check that all required packages are installed
+.missing_packages <- .required_packages[
+!sapply(.required_packages, requireNamespace, quietly = TRUE)
+]
+
+if (length(.missing_packages) > 0) {
+stop(
+"Missing required packages:\n",
+paste(.missing_packages, collapse = ", "),
+"\n\nPlease update your Conda/Mamba environment:\n",
+"mamba env update -f environment.yml",
+call. = FALSE
+)
+}
+
+# Load libraries
+invisible(lapply(
+.required_packages,
+library,
+character.only = TRUE
+))
+
+# Print session information for reproducibility
+message("R version: ", R.version.string)
+message("Loaded ", length(.required_packages), " packages.")
+message("\nLoaded package versions:")
+for (pkg in .required_packages) {
+  message(sprintf(" %-30s %s",
+  pkg,
+  as.character(packageVersion(pkg))))
+}
+message("==============================================\n")
+
+
+# Set up parallel processing on cluster 
+if (Sys.info()["nodename"] == "ribnode020") {
+  ncores = 35
+} else {
+  ncores = 5
+}
+set.seed(2026)
+# Read in configs and helper functions
+manifest_path <- here("config/configs.yml")
+manifest <- yaml.load_file(manifest_path)
+source(here("scripts/preprocess.R"))
+source(here("scripts/helper.R"))
+source(here("scripts/plots.R"))
+source(here("scripts/deg.R"))
+batch_name <- "Batch1"
+# Define output directories
+seurat.path <- manifest$input$cellranger
+seurat.output <- manifest$output$processed_seurat
+figures_dir <- make_outdir("results/publication_figures/")
+seurat_dir <- make_outdir(seurat.output)
+```
+
+```{r}
+#| label: Setup
+#| include: false
+#| eval: true
+#| warning: false
+#| code-fold: true
+#| code-summary: ""
+
+# Set up results folder, theme and colors
+mytheme = function(base_size = 12, base_family = "") {
+  half_line <- base_size/2
+  theme_light(base_size = base_size, base_family = base_family) +
+    theme(
+      panel.grid.major = element_blank(),
+      panel.grid.minor = element_blank(),
+      panel.background = element_rect(fill = "transparent", colour = NA),
+      plot.background = element_rect(fill = "transparent", colour = NA),
+      axis.ticks.length = unit(half_line / 2.2, "pt"),
+      axis.ticks = element_line(colour = "black"),
+      panel.border = element_blank(),
+      axis.line = element_line(colour = "black", linewidth = .3),
+      axis.line.x.top = element_blank(),
+      axis.line.y.right = element_blank(),
+      strip.background = element_rect(fill = NA, colour = NA),
+      strip.text.x = element_text(size = rel(1), colour = "black"),
+      strip.text.y = element_text(size = rel(1), colour = "black"),
+      strip.text = element_text(size = rel(1), colour = "black"),
+      axis.text = element_text(size = rel(1), colour = "black"),
+      axis.title = element_text(size = rel(1), colour = "black"),
+      legend.title = element_text(colour = "black", size = rel(1)),
+      legend.key.size = unit(1, "lines"),
+      legend.text = element_text(size = rel(1), colour = "black"),
+      legend.key = element_rect(colour = NA, fill = NA),
+      legend.background = element_rect(colour = NA, fill = NA),
+      plot.title = element_text(
+        hjust = 0, face = "plain", colour = "black", size = rel(1)
+      ),
+      plot.subtitle = element_text(colour = "black", size = rel(.85))
+    )
+}
+base.size = 12
+```
+
+
+# Plot UMAP, cluster CAR(+/-) and CAR+ without Prodegy
+
+```{r} 
+#| label: UMAP-cluster
+#| include: true
+#| eval: true
+#| warning: false
+#| code-fold: true
+#| code-summary: ""
+
+#Load integrated NK cells
+seu.obj.path <- here(paste0(manifest$output$processed_seurat, "03_integrated_nk_", batch_name, ".Rds"))
+nk_cells <- readRDS(seu.obj.path)
+#rename old origidents
+levels(nk_cells$orig.ident) <- c(
+  "NT",
+  "Prod_CD123-OCIAML2",
+  "CD123-CAR",
+  "CD33-CAR"
+)
+Idents(nk_cells) <- "RNA_snn_res.0.3"
+#rename cluster Idents 0,1,2,3 to 1,2,3,4
+# remove 0 from cluster IDs
+nk_cells <- RenameIdents(
+  nk_cells,
+  `0` = "4",
+  `1` = "2",
+  `2` = "1",
+  `3` = "3"
+)
+map <- c("0"="4","1"="2","2"="1","3"="3")
+nk_cells$RNA_snn_res.0.3 <- unname(map[as.character(nk_cells$RNA_snn_res.0.3)])
+
+########################################## Plot UMAP CAR+/- without Prodegy
+pd_nk <- data.frame(
+  Embeddings(nk_cells, "umap"),
+  cluster = Idents(nk_cells)
+)
+pd_nk <- data.frame(
+  Embeddings(nk_cells, "umap"),
+  cluster = Idents(nk_cells),
+  orig.ident = nk_cells@meta.data$orig.ident   # include sample info
+)%>%
+dplyr::filter(orig.ident != "Prod_CD123-OCIAML2")  # remove the sample
+pd_nk <- pd_nk %>% dplyr::select(-orig.ident)
+colnames(pd_nk)[1:2] <- c("umap_1", "umap_2")
+nk_cluster <- c(
+  "1" = "#81b29a",  # teal green
+  "2" = "#3d405b",  # orange
+  "3" = "#e07a5f",  # indigo
+  "4" = "#7B5E8E"  # magenta
+)
+plot_Ba <- ggplot(
+  data = pd_nk, aes(x = umap_1, y = umap_2, col = cluster)
+) +
+  geom_point(size = 1.0, alpha = 0.6) +
+  # scattermore::geom_scattermore(pointsize = 3, pixels = c(512, 512)) +
+  coord_fixed() +
+  scale_color_manual(values = nk_cluster) +
+  mytheme(base_size = base.size) +
+  theme(
+    plot.subtitle = element_text(hjust = 1, vjust = 1, size = 14),
+    axis.text = element_blank(),
+    axis.ticks = element_blank(),
+    axis.title = element_blank(),
+    axis.line = element_blank(),
+    panel.grid = element_blank(),
+    legend.position = "none"
+  )
+
+plot_Ba <- plot_Ba +
+  annotate(
+    "segment",
+    x = min(pd_nk$umap_1), xend = min(pd_nk$umap_1) + diff(range(pd_nk$umap_1)) * 0.15,
+    y = min(pd_nk$umap_2), yend = min(pd_nk$umap_2),
+    arrow = arrow(length = unit(0.25, "cm")),
+    linewidth = 0.6
+  ) +
+  annotate(
+    "segment",
+    x = min(pd_nk$umap_1), xend = min(pd_nk$umap_1),
+    y = min(pd_nk$umap_2), yend = min(pd_nk$umap_2) + diff(range(pd_nk$umap_2)) * 0.15,
+    arrow = arrow(length = unit(0.25, "cm")),
+    linewidth = 0.6
+  )
+
+plot_Ba 
+
+
+########################################## Plot cluster per samples
+cluster_counts <- nk_cells@meta.data %>%
+  dplyr::filter(orig.ident != "Prod_CD123-OCIAML2") %>%        # Exclude sample early
+  dplyr::group_by(orig.ident, RNA_snn_res.0.3) %>%
+  dplyr::summarise(cell_count = n(), .groups = "drop")
+
+cluster_counts$RNA_snn_res.0.3 <- factor(cluster_counts$RNA_snn_res.0.3)
+
+# Total cells per sample (after exclusion)
+total_cells_per_sample <- nk_cells@meta.data %>%
+  dplyr::filter(orig.ident != "Prod_CD123-OCIAML2") %>%        # Same exclusion here
+  dplyr::group_by(orig.ident) %>%
+  dplyr::summarise(total_cells = n(), .groups = "drop")
+
+# Join and calculate percentage
+cluster_counts <- cluster_counts %>%
+  dplyr::left_join(total_cells_per_sample, by = "orig.ident") %>%
+  dplyr::mutate(percentage = 100 * cell_count / total_cells)
+
+plot_Bb <- ggplot(cluster_counts, aes(x = orig.ident, y = percentage, fill = RNA_snn_res.0.3)) +
+    geom_bar(stat = "identity", position = "stack") +
+    scale_fill_manual(values = nk_cluster, name = "Cluster") +
+    labs(
+      x = "Sample",
+      y = "Percentage of Cells"
+    ) +
+  mytheme(base_size = base.size) +
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1, size = 12),
+    legend.position = "top",
+    legend.title = element_text(size = 12),
+    legend.text = element_text(size = 12)
+  )
+plot_Bb
+
+########################################## Get only CAR+ cells and re-integrate
+expr <- GetAssayData(nk_cells, layer = "data")  # or use "counts" if raw counts are preferred
+car_expr_cells <- colnames(expr)[expr["CAR-CD33", ] > 0 | expr["CAR-CD123", ] > 0]
+# Add CAR_pos metadata column: TRUE for CAR-expressing cells, FALSE otherwise
+nk_cells$CAR_pos <- colnames(nk_cells) %in% car_expr_cells
+nk_cells.car <- subset(nk_cells, subset = CAR_pos == "TRUE")
+
+# se.meta.car <- subset(nk_cells.car, subset = orig.ident != "NTNK-OCIAML2")
+se.meta.car <- subset(nk_cells.car, subset = orig.ident != "NT")
+se.meta.car$orig.ident <- droplevels(se.meta.car$orig.ident)
+
+dims.use.rna = 15
+se.meta.car = integration(
+  obj = se.meta.car,
+  no.ftrs = 2000,
+  threads = 20,
+  cc.regr = T,
+  .nbr.dims = dims.use.rna,
+  run.integration = T, 
+  harmony.group.vars = c("orig.ident"),
+  min.dist = 0.5, 
+  n.neighbors = 100
+)
+col2 <- DimPlot(
+  se.meta.car,
+  group.by = "RNA_snn_res.0.2",
+  reduction = "umap",
+  pt.size = 0.05
+) + coord_fixed() 
+col2
+
+########################################## Plot UMAP of CAR+ (without Prodegy)
+Idents(se.meta.car) <- "RNA_snn_res.0.2"
+se.meta.car <- RenameIdents(
+  se.meta.car,
+  '0' = "C1",
+  '1' = "C2",
+  '2' = "C3"
+)
+map <- c("0"="C1","1"="C2","2"="C3")
+se.meta.car$RNA_snn_res.0.2 <- unname(map[as.character(se.meta.car$RNA_snn_res.0.2)])
+Idents(se.meta.car) <- se.meta.car$RNA_snn_res.0.2
+car_nk_cluster <- c(
+  "C1" = "#edae49",  # teal green
+  "C2" = "#d1495b",  # orange
+  "C3" = "#00798c"  # indigo
+)
+pd_car <- data.frame(
+  Embeddings(se.meta.car, "umap"),
+  cluster = Idents(se.meta.car),
+  orig.ident = se.meta.car@meta.data$orig.ident   # include sample info
+) %>%
+  dplyr::filter(orig.ident != "Prod_CD123-OCIAML2")  # remove the sample
+
+# Drop orig.ident column if not needed in UMAP dataframe
+pd_car <- pd_car %>% dplyr::select(-orig.ident)
+
+colnames(pd_car)[1:2] <- c("umap_1", "umap_2")
+
+plot_Ca <- ggplot(
+  data = pd_car, aes(x = umap_1, y = umap_2, col = cluster)
+) +
+  geom_point(size = 1.5, alpha = 0.6) +
+  # scattermore::geom_scattermore(pointsize = 3, pixels = c(512, 512)) +
+  coord_fixed() +
+  scale_color_manual(values = car_nk_cluster) +
+  mytheme(base_size = base.size) +
+   theme(
+    plot.subtitle = element_text(hjust = 1, vjust = 1, size = 14),
+    axis.text = element_blank(),
+    axis.ticks = element_blank(),
+    axis.title = element_blank(),
+    axis.line = element_blank(),
+    panel.grid = element_blank(),
+    legend.position = "none"
+  )
+
+plot_Ca <- plot_Ca +
+  annotate(
+    "segment",
+    x = min(pd_car$umap_1), xend = min(pd_car$umap_1) + diff(range(pd_car$umap_1)) * 0.15,
+    y = min(pd_car$umap_2), yend = min(pd_car$umap_2),
+    arrow = arrow(length = unit(0.25, "cm")),
+    linewidth = 0.6
+  ) +
+  annotate(
+    "segment",
+    x = min(pd_car$umap_1), xend = min(pd_car$umap_1),
+    y = min(pd_car$umap_2), yend = min(pd_car$umap_2) + diff(range(pd_car$umap_2)) * 0.15,
+    arrow = arrow(length = unit(0.25, "cm")),
+    linewidth = 0.6
+  ) 
+
+plot_Ca
+########################################## Plot Clusters of CAR+ (without Prodegy)
+
+cluster_counts_car_NK <- se.meta.car@meta.data %>%
+dplyr::filter(orig.ident != "Prod_CD123-OCIAML2") %>%        # Same exclusion here
+  group_by(orig.ident, RNA_snn_res.0.2) %>%
+  summarise(cell_count = n(), .groups = "drop")
+cluster_counts_car_NK$RNA_snn_res.0.2 <- factor(cluster_counts_car_NK$RNA_snn_res.0.2)
+
+# Calculate total cells per sample
+total_cells_per_sample <- se.meta.car@meta.data %>%
+dplyr::filter(orig.ident != "Prod_CD123-OCIAML2") %>%        # Same exclusion here
+  group_by(orig.ident) %>%
+  summarise(total_cells = n(), .groups = "drop")
+
+# Join and calculate percentage
+cluster_counts_car_NK <- cluster_counts_car_NK %>%
+dplyr::filter(orig.ident != "Prod_CD123-OCIAML2") %>%        # Same exclusion here
+  left_join(total_cells_per_sample, by = "orig.ident") %>%
+  mutate(percentage = 100 * cell_count / total_cells)
+
+# Plot percentage of cells per cluster per sample as stacked bar plot
+plot_Cb <- ggplot(cluster_counts_car_NK, aes(x = orig.ident, y = percentage, fill = RNA_snn_res.0.2)) +
+    geom_bar(stat = "identity", position = "stack", width=0.7) +
+    scale_fill_manual(values = car_nk_cluster, name = "Cluster") +
+    labs(
+      x = "Sample",
+      y = "Percentage of Cells"
+    ) +
+    mytheme(base_size = base.size) +
+    theme(
+    axis.text.x = element_text(angle = 45, hjust = 1, size = 12),
+    legend.position = "top",
+    legend.title = element_text(size = 12),
+    legend.text = element_text(size = 12)
+  )
+plot_Cb
+
+########################################## Plot Marker genes per cluster
+Idents(nk_cells) <- "RNA_snn_res.0.3"
+all_markers <- FindAllMarkers(
+  nk_cells,
+  only.pos = TRUE,
+  test.use = "wilcox",
+  min.pct = 0.2,
+  logfc.threshold = 0.25
+)
+
+all_markers_nk <- all_markers %>%
+  filter(!is.na(p_val_adj), p_val_adj < 0.05) %>%
+  mutate(cluster = as.numeric(as.character(cluster)))
+
+top10 <- all_markers_nk %>%
+  group_by(cluster) %>%
+  slice_max(order_by = avg_log2FC, n = 10, with_ties = FALSE) %>%
+  arrange(cluster, desc(avg_log2FC)) %>%   # cluster 1 first, genes high→low
+  ungroup()
+
+Idents(nk_cells) <- factor(Idents(nk_cells), levels = sort(as.numeric(levels(Idents(nk_cells)))))
+
+features_ordered <- top10 %>%
+  arrange(cluster, desc(avg_log2FC)) %>%
+  pull(gene)
+
+top10_nkcells <- DotPlot(nk_cells, features = features_ordered) +
+  scale_color_gradient2(
+    low = "#316EA4", mid = "white", high = "#B6303B", midpoint = 0
+  ) +
+  theme_bw(base_size = base.size) +
+  theme(
+    panel.grid = element_blank(),
+    panel.border = element_blank(),
+    axis.line = element_line(),
+    axis.text.x = element_text(angle = 45, hjust = 1, vjust = 1, size=11),
+    axis.text.y = element_text(size=10),
+    legend.position = "top",
+    legend.title = element_text(size = 11),
+    legend.text = element_text(size = 10)
+  )
+top10_nkcells
+
+write.csv(as.data.frame(all_markers_nk), file = file.path(figures_dir, "Supplemental_Table_S1_NKClusters.csv"), row.names = FALSE)
+
+########################################## Plot UMAP of CAR+ (without Prodegy)
+Idents(se.meta.car) <- "RNA_snn_res.0.2"
+all_markers_car <- FindAllMarkers(
+  se.meta.car,
+  only.pos = TRUE,
+  test.use = "wilcox",
+  min.pct = 0.2,
+  logfc.threshold = 0.25
+)
+
+all_markers_car <- all_markers_car %>%
+  filter(!is.na(p_val_adj), p_val_adj < 0.05)
+
+top10_car <- all_markers_car %>%
+  group_by(cluster) %>%
+  slice_max(order_by = avg_log2FC, n = 10, with_ties = FALSE) %>%
+  arrange(cluster, desc(avg_log2FC)) %>%   # cluster 1 first, genes high→low
+  ungroup()
+
+# Idents(se.meta.car) <- factor(Idents(se.meta.car), levels = sort((levels(Idents(se.meta.car)))))
+
+features_ordered <- top10_car %>%
+  arrange(cluster, desc(avg_log2FC)) %>%
+  pull(gene)
+  
+top10_car_pos <- DotPlot(se.meta.car, features = features_ordered) +
+  scale_color_gradient2(
+    low = "#316EA4", mid = "white", high = "#B6303B", midpoint = 0
+  ) +
+  theme_bw(base_size = base.size) +
+  theme(
+    panel.grid = element_blank(),
+    panel.border = element_blank(),
+    axis.line = element_line(),
+    axis.text.x = element_text(angle = 45, hjust = 1, vjust = 1, size=11),
+    axis.text.y = element_text(size=10),
+    legend.position = "top",
+    legend.title = element_text(size = 11),
+    legend.text = element_text(size = 10)
+  )
+top10_car_pos
+# save top10_car as CSV
+write.csv(as.data.frame(all_markers_car), file = file.path(figures_dir, "Supplemental_Table_S2_CARNKClusters.csv"), row.names = FALSE)
+
+########################################## Combine Plots
+plot_Ba <- plot_Ba +
+  theme(
+    plot.margin = margin(t = -15, r = -15, b = -15, l = -50)
+  )
+plot_Bb <- plot_Bb +
+  theme(
+    plot.margin = margin(t = 0, r = 5, b = -5, l = 0)
+  )
+plot_Ca <- plot_Ca +
+  theme(
+    plot.margin = margin(t = -15, r = -15, b = -15, l = -15)
+  )
+plot_Cb <- plot_Cb +
+  theme(
+    plot.margin = margin(t = 0, r = 5, b = -5, l = 0)
+  )
+# plot_Ba <- plot_Ba + theme(aspect.ratio = 1)
+# plot_Bb <- plot_Bb + theme(aspect.ratio = 0.5)
+# plot_Ca <- plot_Ca + theme(aspect.ratio = 1)
+# plot_Cb <- plot_Cb + theme(aspect.ratio = 0.5)
+
+plot_Ba <- plot_Ba +
+  labs(x = NULL, y = NULL)
+plot_Ca <- plot_Ca +
+  labs(x = NULL, y = NULL)
+plot_Bb <- plot_Bb +
+  labs(x = NULL, y = "Percentage of Cells")
+plot_Cb <- plot_Cb +
+  labs(x = NULL, y = "Percentage of Cells")
+  
+row1 <- plot_grid(
+  plot_Ba, plot_Bb, top10_nkcells,
+  plot_Ca, plot_Cb, top10_car_pos, 
+  ncol = 3,
+  nrow = 2, 
+  align = "h",
+  rel_widths = c(1, 0.8, 2)
+)
+ggsave2(
+  filename = file.path(figures_dir, "Figure_CAR_umaps_clusters_row1.png"),
+  plot = row1,
+  width = 180, height = 100,
+  units = "mm", scale = 2.5, dpi = 200,
+  bg = "white", device = png, type = "cairo"
+)
+```
+
+
+# Perform DEG based on car+ nk 
+
+```{r}
+#| label: deg
+#| include: true
+#| eval: true
+#| warning: false
+#| code-fold: true
+#| code-summary: ""
+
+#### CD123 vs. CD33
+# Define constants
+logfc_threshold <- log2(1.25)
+padj_threshold <- 0.05
+
+# # Get expression data
+expr <- GetAssayData(se.meta.car, slot = "data")
+# Identify CAR-positive cells separately
+car33_cells <- colnames(expr)[expr["CAR-CD33", ] > 0]
+car123_cells <- colnames(expr)[expr["CAR-CD123", ] > 0]
+# # Initialize all cells as "CAR-"
+se.meta.car$CAR_status <- "CAR-"
+# # Assign specific CAR types
+se.meta.car$CAR_status[colnames(se.meta.car) %in% car33_cells] <- "CAR-CD33+"
+se.meta.car$CAR_status[colnames(se.meta.car) %in% car123_cells] <- "CAR-CD123+"
+
+CAR_samples <- c("CD123-CAR", "CD33-CAR") #, "Prod_CD123-OCIAML2")
+# CAR_samples <- c("SmS_CD123-OCIAML2","SmS_CD33-OCIAML2")
+Idents(se.meta.car) <- "orig.ident"
+nk_car_subset <- subset(se.meta.car, subset = orig.ident %in% CAR_samples)
+nk_car_subset$orig.ident <- droplevels(nk_car_subset$orig.ident)
+
+# Keep only CAR+ cells (CD123+ or CD33+)
+nk_car_positive <- subset(nk_car_subset, subset = CAR_status %in% c("CAR-CD123+", "CAR-CD33+"))
+sample_counts <- as.data.frame(table(nk_car_positive$orig.ident))
+colnames(sample_counts) <- c("Sample", "CellCount")
+
+group_map <- list(
+  "CD123" = c("CD123-CAR"),
+  "CD33" = c("CD33-CAR")
+)
+
+results <- run_deg_analysis(
+  seu.obj = nk_car_positive,
+  group_map = group_map,
+  group_labels = c("CD123", "CD33"),
+  result_dir = figures_dir,
+  logfc_threshold = logfc_threshold,
+  output_filename = "Supplemental_Table_S3_CARpositive_CD123_vs_CD33_DEG.csv")
+
+deg_mast <- results$deg_results
+top_genes <- results$top_genes
+
+deg_mast$gene[deg_mast$gene == "CAR-CD123"] <- "CD123-CAR"
+deg_mast$gene[deg_mast$gene == "CAR-CD33"] <- "CD33-CAR"
+rownames(deg_mast) <- gsub("^CAR-(.*)$", "\\1-CAR", rownames(deg_mast))
+
+top_genes$gene[top_genes$gene == "CAR-CD123"] <- "CD123-CAR"
+top_genes$gene[top_genes$gene == "CAR-CD33"] <- "CD33-CAR"
+rownames(top_genes) <- gsub("^CAR-(.*)$", "\\1-CAR", rownames(top_genes))
+
+plot_F <- plot_volcano(
+  deg_results = deg_mast,
+  top_genes = top_genes,
+  logfc_threshold = logfc_threshold,
+  title = "CD123-CAR vs CD33-CAR",
+  ylim = c(0,30),
+  xlim = c(-2,2),
+  col_up = "#7e7ee2",
+  col_down = "#51d86c",
+)
+plot_F <- plot_F +
+  mytheme(base_size = 14) +
+  theme(
+    legend.position = "bottom")
+plot_F
+
+############################################ GSEA
+
+any(duplicated(deg_mast$gene))
+sorted_dge <- deg_mast %>%
+  dplyr::filter(!is.na(avg_log2FC)) %>%
+  dplyr::arrange(dplyr::desc(avg_log2FC)) %>%
+  dplyr::distinct(gene, .keep_all = TRUE)
+
+# Let's create a named vector ranked based on the log2 fold change values
+lfc_vector <- sorted_dge$avg_log2FC
+names(lfc_vector) <- sorted_dge$gene
+
+# We need to sort the log2 fold change values in descending order here
+lfc_vector <- sort(lfc_vector, decreasing = TRUE)
+set.seed(2025)
+
+gsea_results <- gseGO(
+  geneList = lfc_vector,
+  OrgDb = org.Hs.eg.db,
+  keyType  = "SYMBOL",
+  ont = "BP",
+  pAdjustMethod = "BH",
+  minGSSize = 10,
+  maxGSSize = 500,
+  pvalueCutoff = 0.05,
+  verbose = FALSE
+)
+
+gsea_results_simple <- simplify(gsea_results, cutoff=0.7, by="p.adjust", select_fun=min)
+gsea_result_df <- data.frame(gsea_results_simple@result)
+gsea_filtered <- gsea_result_df
+
+theme_map <- list(
+  # Interferon-driven cytokine pathways
+  "Interferon signaling" = c("interferon", "ifn","ifng", "type i interferon",
+                             "response to interferon", "jak-stat", 
+                             "isg", "stat1", "stat2", 
+                             "isg15", "ifit", "mx1", "trim"),
+  
+  # ISG effectors and viral restriction
+  "Antiviral defense"   = c("virus", "viral", "antiviral", "viral life", 
+                             "defense response", "response to pathogen",
+                             "viral life cycle", "restriction factor",
+                             "oasl", "rsad2", "ddx", "oas"),
+  
+  # Immune receptor cascades
+  "Immune receptor signaling" = c("receptor", "bcr", "tcr", "syk", "zap70", "lck",
+                                  "plcg2", "cd300a", "itgal", "itgb", "vav", 
+                                  "tlr", "clr", "dectin", "fc receptor", 
+                                  "nk receptor", "tyrobp", "antigen receptor",
+                                  "signaling cascade"),
+  
+  # Cytokine and inflammatory mediators
+  "Cytokine/\nInflammation" = c("tnf", "il1","interleukin-1", "il2rb", "il6", "il12", "il15", "il16", "cytokine stimulus", "stat", "regulation of B cell","b cell proliferation","regulation of b cell proliferation", "innate immune response", "cytokine",
+    "b-cell proliferation","regulation of b-cell proliferation",
+                                        "myd88", "nod2", "nfkb", "jak1", "stat3",
+                                        "cytokine mediated", "inflammatory response",
+                                        "regulation of immune response"),
+  
+  # cytotoxic and apoptotic pathways
+  "Cytotoxicity/\nApoptosis" = c("apoptosis", "granzyme", "cell killing", "death", "programmed cell", 
+                               "pyroptosis", "necrosis", "perforin", "caspase", 
+                               "fas", "trail", "immune killing"),
+  
+  # migration, adhesion, cytoskeleton, synapse
+  "Motility/\nStructure" = c("adhesion", "migration", "cytoskeleton", "actin", "filament", "junction", "microtubule",
+                                        "motility", "locomotion", "synapse", "integrin",
+                                        "focal adhesion", "extravasation", "matrix", "rap1"),
+  
+  # antigen processing and presentation
+  # "Antigen presentation" = c("antigen processing", "mhc", "presentation", "cross presentation"),
+  
+  # metabolic and biosynthetic programs
+  "Metabolism/\nBiogenesis" = c("ribosome", "biogenesis", "translation", "rna", "mitochondrial", "respiration", "amine",
+                              "metabolic", "oxidative phosphorylation", "organelle organization", "proteostasis"),
+  
+  # proliferation, cell cycle, replication
+  "Cell cycle/\nProliferation" = c("cell cycle", "centromere", "mitotic", "replication", "proliferation", "checkpoint", "division", "chromosome segregation", "dna repair"),
+  
+  # stress adaptation
+  "Stress/\nProtein homeostasis" = c("stress", "unfolded protein", "er stress", "heat shock", 
+                                   "autophagy", "ubiquitin", "proteasome", 
+                                   "oxidative stress", "hypoxia", "dna damage response"),
+  "Ion/\nHomeostasis" = c("ion", "cation", "homeostasis", "electrolyte")
+ 
+)
+
+assign_theme <- function(term) {
+  for (theme in names(theme_map)) {
+    if (any(stringr::str_detect(tolower(term), theme_map[[theme]]))) {
+      return(theme)
+    }
+  }
+  return("Other")
+}
+
+gsea_filtered$Theme <- sapply(gsea_filtered$Description, assign_theme)
+
+top_per_theme <- gsea_filtered %>%
+  filter(Theme != "Other") %>%
+  group_by(Theme) %>%
+  arrange(p.adjust, desc(abs(NES))) %>%
+  slice_head(n = 2) %>%
+  ungroup()
+
+# Save top_per_theme to CSV
+
+write.csv(as.data.frame(top_per_theme), file = file.path(figures_dir, "Supplemental_Table_S4_gsea_CD123_vs_CD33.csv"), row.names = FALSE)
+
+gsea_df <- as.data.frame(top_per_theme) %>%
+  transmute(term = Description,
+            NES,
+            padj = p.adjust,
+            size = setSize,
+            Theme)   # <- keep Theme
+
+plot_G <- plot_gsea_bars_with_theme(gsea_df, top_n = Inf, grouping = "facet",col_up = "#7e7ee2", col_down = "#51d86c" )
+plot_G
+########################################## Combine plots without legends
+row3 <- plot_grid(
+  NULL,
+  plot_F,
+  NULL,
+  plot_G,
+  NULL,
+  ncol = 5,
+  rel_widths = c(0.1, 1, 0.1, 1.3 ,0.1)
+)
+
+########################################## Save
+ggsave2(
+  filename = file.path(figures_dir, "Figure_DEG_GSEA_CD123_vs_CD33.png"),
+  plot = row3,
+  width = 180, height = 60,
+  units = "mm", scale = 2.5, dpi = 200,
+  bg = "white", device = png, type = "cairo"
+)
+
+```
+
+# Perform DEG based on car+ nk  Prodegy vs SS
+
+```{r}
+#| label: deg-prodegy
+#| include: true
+#| eval: true
+#| warning: false
+#| code-fold: true
+#| code-summary: ""
+
+
+CAR_samples <- c("CD123-CAR", "Prod_CD123-OCIAML2")
+Idents(se.meta.car) <- "orig.ident"
+cd123_car_subset <- subset(se.meta.car, subset = orig.ident %in% CAR_samples)
+cd123_car_subset$orig.ident <- droplevels(cd123_car_subset$orig.ident)
+
+# Keep only CAR+ cells (CD123+ or CD33+)
+cd123_car_positive <- subset(cd123_car_subset, subset = CAR_status %in% c("CAR-CD123+"))
+sample_counts <- as.data.frame(table(cd123_car_positive$orig.ident))
+colnames(sample_counts) <- c("Sample", "CellCount")
+
+group_map <- list(
+  "Prod" = c("Prod_CD123-OCIAML2"),
+  "SmS" = c("CD123-CAR")
+)
+results <- run_deg_analysis(
+  seu.obj = cd123_car_positive,
+  group_map = group_map,
+  group_labels = c("Prod", "SmS"),
+  result_dir = figures_dir,
+  logfc_threshold = logfc_threshold,
+  output_filename = "Supplemental_Table_S5_CARpositive_Prod_vs_SS_DEG.csv",
+)
+
+deg_mast <- results$deg_results
+top_genes <- results$top_genes
+
+plot_2E <- plot_volcano(
+  deg_results = deg_mast,
+  top_genes = top_genes,
+  logfc_threshold = logfc_threshold,
+  title = "PROD-CD123-CAR vs SmS-CD123-CAR",
+  xlim = c(-2,2),
+  col_up = "#5757F9",
+  col_down = "#8D8DFF",
+  col_ns = "lightgrey"
+)
+plot_2E <- plot_2E +
+  mytheme(base_size = 14) +
+  theme(
+    legend.position = "bottom",
+  )
+plot_2E
+################################### GSEA
+any(duplicated(deg_mast$gene))
+
+sorted_dge <- deg_mast %>%
+  dplyr::filter(!is.na(avg_log2FC)) %>%
+  dplyr::arrange(dplyr::desc(avg_log2FC)) %>%
+  dplyr::distinct(gene, .keep_all = TRUE)
+
+# Let's create a named vector ranked based on the log2 fold change values
+lfc_vector <- sorted_dge$avg_log2FC
+names(lfc_vector) <- sorted_dge$gene
+
+# We need to sort the log2 fold change values in descending order here
+lfc_vector <- sort(lfc_vector, decreasing = TRUE)
+set.seed(2025)
+
+gsea_results <- gseGO(
+  geneList = lfc_vector,
+  OrgDb = org.Hs.eg.db,
+  keyType  = "SYMBOL",
+  ont = "BP",
+  pAdjustMethod = "BH",
+  minGSSize = 10,
+  maxGSSize = 500,
+  pvalueCutoff = 0.05,
+  verbose = FALSE
+)
+
+gsea_results_simple <- simplify(gsea_results, cutoff=0.7, by="p.adjust", select_fun=min)
+gsea_result_df <- data.frame(gsea_results_simple@result)
+
+gsea_filtered <- gsea_result_df %>%
+  filter(setSize <= 300)
+
+gsea_filtered$Theme <- sapply(gsea_filtered$Description, assign_theme)
+
+top_per_theme <- gsea_filtered %>%
+  filter(Theme != "Other") %>%
+  group_by(Theme, dir = if_else(NES >= 0, "Positive", "Negative")) %>%
+  arrange(p.adjust, desc(abs(NES))) %>%
+  slice_head(n = 2) %>%   # take 2 from each direction inside each Theme
+  ungroup()
+
+top_per_theme <- top_per_theme %>%
+  dplyr::filter(ID != "GO:0007186")
+
+write.csv(as.data.frame(top_per_theme), file = file.path(figures_dir, "Supplemental_Table_S6_gsea_prodegy_vs_ss_car_pos.csv"), row.names = FALSE)
+
+gsea_df <- as.data.frame(top_per_theme) %>%
+  transmute(term = Description,
+            NES,
+            padj = p.adjust,
+            size = setSize,
+            Theme)   # <- keep Theme
+
+
+plot_2F <- plot_gsea_bars_with_theme(gsea_df, top_n = Inf, grouping = "facet",col_up = "#5757F9", col_down = "#8D8DFF", label_up="Up (PROD-CD123-CAR)", label_down="Down (SmS-CD123-CAR)")
+
+plot_2F
+########################################## Combine plots without legends
+row_prodegy <- plot_grid(
+  NULL,
+  plot_2E,
+  NULL,
+  plot_2F,
+  NULL,
+  ncol = 5,
+  rel_widths = c(0.1, 1, 0.1, 1, 0.15)
+)
+
+########################################## Save
+ggsave2(
+  filename = file.path(figures_dir, "Figure_Prodegy_row3.png"),
+  plot = row_prodegy,
+  width = 180, height = 40,
+  units = "mm", scale = 2.5, dpi = 200,
+  bg = "white", device = png, type = "cairo"
+)
+
+```

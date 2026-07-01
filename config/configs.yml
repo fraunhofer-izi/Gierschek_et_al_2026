@@ -1,0 +1,14 @@
+input:
+  cellranger: "data/per_sample_outs"
+
+output: 
+  processed_seurat: "results/processed_seurat/"
+
+qc_cutoffs:
+  Batch1:
+    nFeature_low: 500
+    nFeature_high: 7500
+    nCount_low: 1000
+    nCount_high: 40000
+    mt_cutoff: 15
+    complx_cutoff: 0.8
