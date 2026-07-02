@@ -20,50 +20,85 @@ Code to reproduce the analysis and figures from the publication "Comparison with
 └── scripts/        # Utility scripts
 ```
 
-# Reproducability 
+# Reproducibility
 
-## 1. Clone Repository
+This repository supports two reproducible workflows depending on your objective.
 
-```
+## Option 1. Generate Publication Figures 
+
+If your goal is to reproduce the figures presented in the manuscript, you can start directly from the processed integrated Seurat object.
+
+This workflow minimizes variability introduced during preprocessing and integration, such as stochastic initialization, graph-based clustering, and differences between software versions or computing environments.
+
+
+### 1. Clone the repository
+
+```bash
 git clone <repository-url>
 cd Gierschek_et_al_2026
 ```
 
-Requirements:
-- conda/miniforge installed
-- mamba installed
-
-## 2. Setup
+### 2. Create the environment
 
 ```bash
 mamba env create -f environment.yml
 mamba activate 2026_Gierschek_et_al_CD123_CD33_CAR_NK
 ```
 
-## 3. Download data 
+### 3. Download the processed Seurat object
 
-```
-mkdir -p data/per_sample_outs
-cd data/per_sample_outs
-```
+Download the processed integrated Seurat object from the GEO repository and place it in:
 
-Download data from GEO repository.
-After extraction, organize the processed CellRanger output for each sample as:
-
-```
-data/per_sample_outs/NTNK-OCIAML2/count/sample_raw_feature_bc_matrix/barcodes.tsv.gz
-data/per_sample_outs/NTNK-OCIAML2/count/sample_raw_feature_bc_matrix/features.tsv
-data/per_sample_outs/NTNK-OCIAML2/count/sample_raw_feature_bc_matrix/matrix.mtx
+```text
+results/processed_seurat/
 ```
 
-## 4. Run Pipeline
+### 4. Generate the figures
 
+```bash
+make figures
+```
 
-The full analysis pipeline can be executed using:
+This workflow reproduces the publication figures directly from the processed Seurat object used for the manuscript.
+
+## Option 2. Full Analysis Pipeline (from raw data)
+
+Use this workflow to reproduce the complete single-cell analysis starting from the processed CellRanger output.
+
+### 1. Clone the repository
+
+```bash
+git clone <repository-url>
+cd Gierschek_et_al_2026
+```
+
+### 2. Create the environment
+
+```bash
+mamba env create -f environment.yml
+mamba activate 2026_Gierschek_et_al_CD123_CD33_CAR_NK
+```
+
+### 3. Download CellRanger output
+
+Download the processed CellRanger output from the GEO repository and organize each sample as:
+
+```text
+data/per_sample_outs/NTNK-OCIAML2/count/sample_raw_feature_bc_matrix/
+├── barcodes.tsv.gz
+├── features.tsv.gz
+└── matrix.mtx.gz
+```
+
+### 4. Run the complete analysis
 
 ```bash
 make all
 ```
+
+This workflow reproduces all preprocessing steps, including quality control, annotation, integration, and generation of the processed Seurat object.
+
+---
 
 The pipeline consists of the following stages:
 
@@ -86,7 +121,7 @@ results/
 
 ---
 
-# 4. Publication Figures
+### 5. Publication Figures
 
 Publication figures are generated using:
 
